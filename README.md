@@ -19,7 +19,7 @@
 [cndjs_url]: https://cdnjs.com/libraries/pdfmake
 
 
-Client/server side PDF printing in pure JavaScript
+Windward pdfmake with lato & icomoon support
 
 Check out [the playground](http://bpampuch.github.io/pdfmake/playground.html) and [examples](https://github.com/bpampuch/pdfmake/tree/master/examples).
 
