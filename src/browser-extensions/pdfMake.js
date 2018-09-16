@@ -1,9 +1,8 @@
-/* jslint node: true */
-/* jslint browser: true */
 'use strict';
 
 var PdfPrinter = require('../printer');
-var FileSaver = require('../../libs/FileSaver.js/FileSaver');
+var isFunction = require('../helpers').isFunction;
+var FileSaver = require('file-saver');
 var saveAs = FileSaver.saveAs;
 
 var defaultClientFonts = {
@@ -37,7 +36,7 @@ Document.prototype._createDoc = function (options, callback) {
 	}
 
 	var printer = new PdfPrinter(this.fonts);
-	printer.fs.bindFS(this.vfs);
+	require('fs').bindFS(this.vfs); // bind virtual file system to file system
 
 	var doc = printer.createPdfKitDocument(this.docDefinition, options);
 	var chunks = [];
@@ -87,7 +86,7 @@ Document.prototype._bufferToBlob = function (buffer) {
 Document.prototype._openWindow = function () {
 	// we have to open the window immediately and store the reference
 	// otherwise popup blockers will stop us
-	var win = global.open('', '_blank');
+	var win = window.open('', '_blank');
 	if (win === null) {
 		throw 'Open PDF in new window blocked by browser';
 	}
@@ -101,7 +100,7 @@ Document.prototype._openPdf = function (options, win) {
 	}
 	try {
 		this.getBlob(function (result) {
-			var urlCreator = global.URL || global.webkitURL;
+			var urlCreator = window.URL || window.webkitURL;
 			var pdfUrl = urlCreator.createObjectURL(result);
 			win.location.href = pdfUrl;
 		}, options);
@@ -129,7 +128,7 @@ Document.prototype.print = function (options, win) {
 };
 
 Document.prototype.download = function (defaultFileName, cb, options) {
-	if (typeof defaultFileName === 'function') {
+	if (isFunction(defaultFileName)) {
 		cb = defaultFileName;
 		defaultFileName = null;
 	}
@@ -138,7 +137,7 @@ Document.prototype.download = function (defaultFileName, cb, options) {
 	this.getBlob(function (result) {
 		saveAs(result, defaultFileName);
 
-		if (typeof cb === 'function') {
+		if (isFunction(cb)) {
 			cb();
 		}
 	}, options);

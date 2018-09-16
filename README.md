@@ -1,6 +1,6 @@
 # pdfmake [![Build Status][travis_img]][travis_url] [![GitHub][github_img]][github_url] [![npm][npm_img]][npm_url] [![Bower][bower_img]][bower_url] [![Packagist][packagist_img]][packagist_url] [![CDNJS][cdnjs_img]][cndjs_url]
 
-[travis_img]: https://travis-ci.org/bpampuch/pdfmake.png?branch=master
+[travis_img]: https://travis-ci.org/bpampuch/pdfmake.svg?branch=master
 [travis_url]: https://travis-ci.org/bpampuch/pdfmake
 
 [github_img]: https://img.shields.io/github/release/bpampuch/pdfmake.svg
@@ -206,8 +206,41 @@ Parameters:
 * `cb` - callback function
 * `options` _(optional)_
 
+#### Get the PDF as Blob
+```js
+const pdfDocGenerator = pdfMake.createPdf(docDefinition);
+pdfDocGenerator.getBlob((blob) => {
+	// ...
+});
+```
+Parameters:
+* `cb` - callback function
+* `options` _(optional)_
+
 #### Using javascript frameworks
+
+```js
+var pdfMake = require('pdfmake/build/pdfmake.js');
+var pdfFonts = require('pdfmake/build/vfs_fonts.js');
+pdfMake.vfs = pdfFonts.pdfMake.vfs;
+```
+
+or
+
+```js
+import pdfMake from "pdfmake/build/pdfmake";
+import pdfFonts from "pdfmake/build/vfs_fonts";
+pdfMake.vfs = pdfFonts.pdfMake.vfs;
+```
+
 For Ionic and Angular see [issue](https://github.com/bpampuch/pdfmake/issues/1030).
+
+If a **Cannot read property 'TYPED_ARRAY_SUPPORT' of undefined** error is thrown, add this to webpack config:
+```
+exclude: [ /node_modules/, /pdfmake.js$/ ]
+```
+(see [issue](https://github.com/bpampuch/pdfmake/issues/1100#issuecomment-336728521))
+
 
 #### Server side
 
@@ -453,8 +486,8 @@ It may contain any other object as well (images, tables, ...) or be dynamically 
 
 ```js
 var docDefinition = {
-  background: function(currentPage) {
-    return 'simple text on page ' + currentPage
+  background: function(currentPage, pageSize) {
+    return `page ${currentPage} with size ${pageSize.width} x ${pageSize.height}`
   },
 
   content: (...)
@@ -644,6 +677,56 @@ To change page orientation within a document, add a page break with the new page
 }
 ```
 
+#### Dynamically control page breaks, for instance to avoid orphan children
+
+A `pageBreakBefore` function can be specified, which can determine if a page break should be inserted before a node. To implement a 'no orphan child' rule, use a definition like this:
+
+``` javascript
+var dd = {
+    content: [
+       {text: '1 Headline', headlineLevel: 1},
+       'Some long text of variable length ...',
+       {text: '2 Headline', headlineLevel: 1},
+       'Some long text of variable length ...',
+       {text: '3 Headline', headlineLevel: 1},
+       'Some long text of variable length ...',
+    ],
+  pageBreakBefore: function(currentNode, followingNodesOnPage, nodesOnNextPage, previousNodesOnPage) {
+     return currentNode.headlineLevel === 1 && followingNodesOnPage.length === 0;
+  }
+}
+```
+
+If `pageBreakBefore` returns true, a page break will be added before the `currentNode`. Current node has the following information attached:
+
+``` javascript
+{
+   id: '<as specified in doc definition>',
+   headlineLevel: '<as specified in doc definition>',
+   text: '<as specified in doc definition>',
+   ul: '<as specified in doc definition>',
+   ol: '<as specified in doc definition>',
+   table: '<as specified in doc definition>',
+   image: '<as specified in doc definition>',
+   qr: '<as specified in doc definition>',
+   canvas: '<as specified in doc definition>',
+   columns: '<as specified in doc definition>',
+   style: '<as specified in doc definition>',
+   pageOrientation '<as specified in doc definition>',
+   pageNumbers: [2, 3], // The pages this element is visible on (e.g. multi-line text could be on more than one page)
+   pages: 6, // the total number of pages of this document
+   stack: false, // if this is an element which encapsulates multiple sub-objects
+   startPosition: {
+     pageNumber: 2, // the page this node starts on
+     pageOrientation: 'landscape', // the orientation of this page
+     left: 60, // the left position
+     right: 60, // the right position
+     verticalRatio: 0.2, // the ratio of space used vertically in this document (excluding margins)
+     horizontalRatio: 0.0  // the ratio of space used horizontally in this document (excluding margins)
+   }
+}
+```
+
 #### Document Metadata
 
 PDF documents can have various metadata associated with them, such as the title, or author
@@ -691,12 +774,20 @@ var docDefinition = {
 
 ## Building from sources
 
+using npm:
 ```
 git clone https://github.com/bpampuch/pdfmake.git
 cd pdfmake
-npm install # or: yarn
-git submodule update --init  libs/FileSaver.js
-npm run build # or: yarn run build
+npm install
+npm run build
+```
+
+using yarn:
+```
+git clone https://github.com/bpampuch/pdfmake.git
+cd pdfmake
+yarn
+yarn run build
 ```
 
 ## Coming soon

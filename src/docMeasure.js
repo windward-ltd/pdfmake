@@ -1,9 +1,14 @@
-/* jslint node: true */
+/*eslint no-unused-vars: ["error", {"args": "none"}]*/
+
 'use strict';
 
 var TextTools = require('./textTools');
 var StyleContextStack = require('./styleContextStack');
 var ColumnCalculator = require('./columnCalculator');
+var isString = require('./helpers').isString;
+var isNumber = require('./helpers').isNumber;
+var isObject = require('./helpers').isObject;
+var isArray = require('./helpers').isArray;
 var fontStringify = require('./helpers').fontStringify;
 var pack = require('./helpers').pack;
 var qrEncoder = require('./qrEnc.js');
@@ -103,9 +108,9 @@ DocMeasure.prototype.measureNode = function (node) {
 		}
 
 		function convertMargin(margin) {
-			if (typeof margin === 'number' || margin instanceof Number) {
+			if (isNumber(margin)) {
 				margin = [margin, margin, margin, margin];
-			} else if (Array.isArray(margin)) {
+			} else if (isArray(margin)) {
 				if (margin.length === 2) {
 					margin = [margin[0], margin[1], margin[0], margin[1]];
 				}
@@ -116,7 +121,7 @@ DocMeasure.prototype.measureNode = function (node) {
 		var margin = [undefined, undefined, undefined, undefined];
 
 		if (node.style) {
-			var styleArray = (Array.isArray(node.style)) ? node.style : [node.style];
+			var styleArray = isArray(node.style) ? node.style : [node.style];
 			var flattenedStyleArray = flattenStyleArray(styleArray);
 
 			if (flattenedStyleArray) {
@@ -165,22 +170,22 @@ DocMeasure.prototype.measureImage = function (node) {
 		node._width = node._minWidth = node._maxWidth = node.width || imageSize.width;
 		node._height = node.height || (imageSize.height * node._width / imageSize.width);
 
-		if (typeof node.maxWidth === "number" && node.maxWidth < node._width) {
+		if (isNumber(node.maxWidth) && node.maxWidth < node._width) {
 			node._width = node._minWidth = node._maxWidth = node.maxWidth;
 			node._height = node._width * imageSize.height / imageSize.width;
 		}
 
-		if (typeof node.maxHeight === "number" && node.maxHeight < node._height) {
+		if (isNumber(node.maxHeight) && node.maxHeight < node._height) {
 			node._height = node.maxHeight;
 			node._width = node._minWidth = node._maxWidth = node._height * imageSize.width / imageSize.height;
 		}
 
-		if (typeof node.minWidth === "number" && node.minWidth > node._width) {
+		if (isNumber(node.minWidth) && node.minWidth > node._width) {
 			node._width = node._minWidth = node._maxWidth = node.minWidth;
 			node._height = node._width * imageSize.height / imageSize.width;
 		}
 
-		if (typeof node.minHeight === "number" && node.minHeight > node._height) {
+		if (isNumber(node.minHeight) && node.minHeight > node._height) {
 			node._height = node.minHeight;
 			node._width = node._minWidth = node._maxWidth = node._height * imageSize.width / imageSize.height;
 		}
@@ -191,6 +196,10 @@ DocMeasure.prototype.measureImage = function (node) {
 };
 
 DocMeasure.prototype.measureLeaf = function (node) {
+
+	if (node._textRef && node._textRef._textNodeRef.text) {
+		node.text = node._textRef._textNodeRef.text;
+	}
 
 	// Make sure style properties of the node itself are considered when building inlines.
 	// We could also just pass [node] to buildInlines, but that fails for bullet points.
@@ -212,14 +221,16 @@ DocMeasure.prototype.measureToc = function (node) {
 	}
 
 	var body = [];
-	var numberStyle = node.toc.numberStyle || {};
+	var textStyle = node.toc.textStyle || {};
+	var numberStyle = node.toc.numberStyle || textStyle;
+	var textMargin = node.toc.textMargin || [0, 0, 0, 0];
 	for (var i = 0, l = node.toc._items.length; i < l; i++) {
 		var item = node.toc._items[i];
-		var lineStyle = node.toc._items[i].tocStyle || {};
-		var lineMargin = node.toc._items[i].tocMargin || [ 0, 0, 0, 0 ];
+		var lineStyle = item._textNodeRef.tocStyle || textStyle;
+		var lineMargin = item._textNodeRef.tocMargin || textMargin;
 		body.push([
-			{text: item.text, alignment: 'left', style: lineStyle, margin: lineMargin},
-			{text: '00000', alignment: 'right', _tocItemRef: item, style: numberStyle, margin: [ 0, lineMargin[1], 0, lineMargin[3]]}
+			{text: item._textNodeRef.text, alignment: 'left', style: lineStyle, margin: lineMargin},
+			{text: '00000', alignment: 'right', _tocItemRef: item._nodeRef, style: numberStyle, margin: [0, lineMargin[1], 0, lineMargin[3]]}
 		]);
 	}
 
@@ -397,7 +408,7 @@ DocMeasure.prototype.buildOrderedMarker = function (counter, styleStack, type, s
 	}
 
 	if (separator) {
-		if (Array.isArray(separator)) {
+		if (isArray(separator)) {
 			if (separator[0]) {
 				counterText = separator[0] + counterText;
 			}
@@ -559,7 +570,7 @@ DocMeasure.prototype.measureTable = function (node) {
 
 	function measureCb(_this, data) {
 		return function () {
-			if (data !== null && typeof data === 'object') {
+			if (isObject(data)) {
 				data.fillColor = _this.styleStack.getProperty('fillColor');
 			}
 			return _this.measureNode(data);
@@ -569,11 +580,10 @@ DocMeasure.prototype.measureTable = function (node) {
 	function getLayout(tableLayouts) {
 		var layout = node.layout;
 
-		if (typeof node.layout === 'string' || node instanceof String) {
+		if (isString(layout)) {
 			layout = tableLayouts[layout];
 		}
 
-		/*jshint unused: false */
 		var defaultLayout = {
 			hLineWidth: function (i, node) {
 				return 1;
@@ -586,6 +596,12 @@ DocMeasure.prototype.measureTable = function (node) {
 			},
 			vLineColor: function (i, node) {
 				return 'black';
+			},
+			hLineStyle: function (i, node) {
+				return null;
+			},
+			vLineStyle: function (i, node) {
+				return null;
 			},
 			paddingLeft: function (i, node) {
 				return 4;
@@ -694,7 +710,7 @@ DocMeasure.prototype.measureTable = function (node) {
 			node.table.widths = 'auto';
 		}
 
-		if (typeof node.table.widths === 'string' || node.table.widths instanceof String) {
+		if (isString(node.table.widths)) {
 			node.table.widths = [node.table.widths];
 
 			while (node.table.widths.length < node.table.body[0].length) {
@@ -704,7 +720,7 @@ DocMeasure.prototype.measureTable = function (node) {
 
 		for (var i = 0, l = node.table.widths.length; i < l; i++) {
 			var w = node.table.widths[i];
-			if (typeof w === 'number' || w instanceof Number || typeof w === 'string' || w instanceof String) {
+			if (isNumber(w) || isString(w)) {
 				node.table.widths[i] = {width: w};
 			}
 		}
@@ -741,6 +757,7 @@ DocMeasure.prototype.measureCanvas = function (node) {
 
 	node._minWidth = node._maxWidth = w;
 	node._minHeight = node._maxHeight = h;
+	node._alignment = this.styleStack.getProperty('alignment');
 
 	return node;
 };

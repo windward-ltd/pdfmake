@@ -1,9 +1,6 @@
-/* jslint node: true */
 'use strict';
 
-var _ = require('lodash');
-
-_.noConflict();
+var isArray = require('./helpers').isArray;
 
 function typeName(bold, italics) {
 	var type = 'normal';
@@ -46,7 +43,7 @@ FontProvider.prototype.provideFont = function (familyName, bold, italics) {
 
 	if (!this.fontCache[familyName][type]) {
 		var def = this.fonts[familyName][type];
-		if (!Array.isArray(def)) {
+		if (!isArray(def)) {
 			def = [def];
 		}
 		this.fontCache[familyName][type] = this.pdfKitDoc.font.apply(this.pdfKitDoc, def)._font;

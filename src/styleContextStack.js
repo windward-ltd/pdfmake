@@ -1,5 +1,9 @@
-/* jslint node: true */
 'use strict';
+
+var isString = require('./helpers').isString;
+var isArray = require('./helpers').isArray;
+var isUndefined = require('./helpers').isUndefined;
+var isNull = require('./helpers').isNull;
 
 /**
  * Creates an instance of StyleContextStack used for style inheritance and style overrides
@@ -62,14 +66,14 @@ StyleContextStack.prototype.pop = function (howMany) {
  * @return the number of items pushed onto the stack
  */
 StyleContextStack.prototype.autopush = function (item) {
-	if (typeof item === 'string' || item instanceof String) {
+	if (isString(item)) {
 		return 0;
 	}
 
 	var styleNames = [];
 
 	if (item.style) {
-		if (Array.isArray(item.style)) {
+		if (isArray(item.style)) {
 			styleNames = item.style;
 		} else {
 			styleNames = [item.style];
@@ -80,12 +84,10 @@ StyleContextStack.prototype.autopush = function (item) {
 		this.push(styleNames[i]);
 	}
 
-	var styleOverrideObject = {};
-	var pushSOO = false;
-
-	[
+	var styleProperties = [
 		'font',
 		'fontSize',
+		'fontFeatures',
 		'bold',
 		'italics',
 		'alignment',
@@ -107,18 +109,22 @@ StyleContextStack.prototype.autopush = function (item) {
 			// 'oddRowCellBorder',
 			// 'evenRowCellBorder',
 			// 'tableBorder'
-	].forEach(function (key) {
-		if (item[key] !== undefined && item[key] !== null) {
+	];
+	var styleOverrideObject = {};
+	var pushStyleOverrideObject = false;
+
+	styleProperties.forEach(function (key) {
+		if (!isUndefined(item[key]) && !isNull(item[key])) {
 			styleOverrideObject[key] = item[key];
-			pushSOO = true;
+			pushStyleOverrideObject = true;
 		}
 	});
 
-	if (pushSOO) {
+	if (pushStyleOverrideObject) {
 		this.push(styleOverrideObject);
 	}
 
-	return styleNames.length + (pushSOO ? 1 : 0);
+	return styleNames.length + (pushStyleOverrideObject ? 1 : 0);
 };
 
 /**
@@ -151,18 +157,15 @@ StyleContextStack.prototype.getProperty = function (property) {
 		for (var i = this.styleOverrides.length - 1; i >= 0; i--) {
 			var item = this.styleOverrides[i];
 
-			if (typeof item === 'string' || item instanceof String) {
+			if (isString(item)) {
 				// named-style-override
-
 				var style = this.styleDictionary[item];
-				if (style && style[property] !== null && style[property] !== undefined) {
+				if (style && !isUndefined(style[property]) && !isNull(style[property])) {
 					return style[property];
 				}
-			} else {
+			} else if (!isUndefined(item[property]) && !isNull(item[property])) {
 				// style-overrides-object
-				if (item[property] !== undefined && item[property] !== null) {
-					return item[property];
-				}
+				return item[property];
 			}
 		}
 	}
