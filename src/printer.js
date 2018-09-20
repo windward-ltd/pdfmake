@@ -1,16 +1,19 @@
-/* jslint node: true */
+/*eslint no-unused-vars: ["error", {"args": "none"}]*/
 'use strict';
 
-var _ = require('lodash');
+var PdfKitEngine = require('./pdfKitEngine');
 var FontProvider = require('./fontProvider');
 var LayoutBuilder = require('./layoutBuilder');
-var PdfKit = require('pdfkit');
 var sizes = require('./standardPageSizes');
 var ImageMeasure = require('./imageMeasure');
 var textDecorator = require('./textDecorator');
 var TextTools = require('./textTools');
-
-_.noConflict();
+var isFunction = require('./helpers').isFunction;
+var isString = require('./helpers').isString;
+var isNumber = require('./helpers').isNumber;
+var isBoolean = require('./helpers').isBoolean;
+var isArray = require('./helpers').isArray;
+var isUndefined = require('./helpers').isUndefined;
 
 ////////////////////////////////////////
 // PdfPrinter
@@ -83,8 +86,10 @@ PdfPrinter.prototype.createPdfKitDocument = function (docDefinition, options) {
 	options = options || {};
 
 	var pageSize = fixPageSize(docDefinition.pageSize, docDefinition.pageOrientation);
+	var compressPdf = isBoolean(docDefinition.compress) ? docDefinition.compress : true;
+	var bufferPages = options.bufferPages || false;
 
-	this.pdfKitDoc = new PdfKit({size: [pageSize.width, pageSize.height], autoFirstPage: false, compress: docDefinition.compress || true});
+	this.pdfKitDoc = PdfKitEngine.createPdfDocument({size: [pageSize.width, pageSize.height], bufferPages: bufferPages, autoFirstPage: false, compress: compressPdf});
 	setMetadata(docDefinition, this.pdfKitDoc);
 
 	this.fontProvider = new FontProvider(this.fontDescriptors, this.pdfKitDoc);
@@ -100,7 +105,7 @@ PdfPrinter.prototype.createPdfKitDocument = function (docDefinition, options) {
 
 	var pages = builder.layoutDocument(docDefinition.content, this.fontProvider, docDefinition.styles || {}, docDefinition.defaultStyle || {fontSize: 12, font: 'Roboto'}, docDefinition.background, docDefinition.header, docDefinition.footer, docDefinition.images, docDefinition.watermark, docDefinition.pageBreakBefore);
 	var maxNumberPages = docDefinition.maxPagesNumber || -1;
-	if (typeof maxNumberPages === 'number' && maxNumberPages > -1) {
+	if (isNumber(maxNumberPages) && maxNumberPages > -1) {
 		pages = pages.slice(0, maxNumberPages);
 	}
 
@@ -157,7 +162,7 @@ function setMetadata(docDefinition, pdfKitDoc) {
 
 function calculatePageHeight(pages, margins) {
 	function getItemHeight(item) {
-		if (typeof item.item.getHeight === 'function') {
+		if (isFunction(item.item.getHeight)) {
 			return item.item.getHeight();
 		} else if (item.item._height) {
 			return item.item._height;
@@ -167,19 +172,32 @@ function calculatePageHeight(pages, margins) {
 		}
 	}
 
+	function getBottomPosition(item) {
+		var top = item.item.y;
+		var height = getItemHeight(item);
+		return top + height;
+	}
+
 	var fixedMargins = fixPageMargins(margins || 40);
-	var height = fixedMargins.top + fixedMargins.bottom;
+	var height = fixedMargins.top;
+
 	pages.forEach(function (page) {
 		page.items.forEach(function (item) {
-			height += getItemHeight(item);
+			var bottomPosition = getBottomPosition(item);
+			if (bottomPosition > height) {
+				height = bottomPosition;
+			}
 		});
 	});
+
+	height += fixedMargins.bottom;
+
 	return height;
 }
 
 function fixPageSize(pageSize, pageOrientation) {
 	function isNeedSwapPageSizes(pageOrientation) {
-		if (typeof pageOrientation === 'string' || pageOrientation instanceof String) {
+		if (isString(pageOrientation)) {
 			pageOrientation = pageOrientation.toLowerCase();
 			return ((pageOrientation === 'portrait') && (size.width > size.height)) ||
 				((pageOrientation === 'landscape') && (size.width < size.height));
@@ -205,9 +223,9 @@ function fixPageMargins(margin) {
 		return null;
 	}
 
-	if (typeof margin === 'number' || margin instanceof Number) {
+	if (isNumber(margin)) {
 		margin = {left: margin, right: margin, top: margin, bottom: margin};
-	} else if (Array.isArray(margin)) {
+	} else if (isArray(margin)) {
 		if (margin.length === 2) {
 			margin = {left: margin[0], top: margin[1], right: margin[0], bottom: margin[1]};
 		} else if (margin.length === 4) {
@@ -221,7 +239,6 @@ function fixPageMargins(margin) {
 }
 
 function registerDefaultTableLayouts(layoutBuilder) {
-	/*jshint unused: false */
 	layoutBuilder.registerTableLayouts({
 		noBorders: {
 			hLineWidth: function (i) {
@@ -278,7 +295,7 @@ function registerDefaultTableLayouts(layoutBuilder) {
 }
 
 function pageSize2widthAndHeight(pageSize) {
-	if (typeof pageSize === 'string' || pageSize instanceof String) {
+	if (isString(pageSize)) {
 		var size = sizes[pageSize.toUpperCase()];
 		if (!size) {
 			throw 'Page size ' + pageSize + ' not recognized';
@@ -303,9 +320,13 @@ function renderPages(pages, fontProvider, pdfKitDoc, progressCallback) {
 	pdfKitDoc._pdfMakePages = pages;
 	pdfKitDoc.addPage();
 
-	var totalItems = progressCallback && _.sumBy(pages, function (page) {
-		return page.items.length;
-	});
+	var totalItems = 0;
+	if (progressCallback) {
+		pages.forEach(function (page) {
+			totalItems += page.items.length;
+		});
+	}
+
 	var renderedItems = 0;
 	progressCallback = progressCallback || function () {};
 
@@ -328,6 +349,12 @@ function renderPages(pages, fontProvider, pdfKitDoc, progressCallback) {
 				case 'image':
 					renderImage(item.item, item.item.x, item.item.y, pdfKitDoc);
 					break;
+				case 'beginClip':
+					beginClip(item.item, pdfKitDoc);
+					break;
+				case 'endClip':
+					endClip(pdfKitDoc);
+					break;
 			}
 			renderedItems++;
 			progressCallback(renderedItems / totalItems);
@@ -339,24 +366,35 @@ function renderPages(pages, fontProvider, pdfKitDoc, progressCallback) {
 }
 
 function renderLine(line, x, y, pdfKitDoc) {
-	if (line._tocItemNode) {
+	function preparePageNodeRefLine(_pageNodeRef, inline) {
 		var newWidth;
 		var diffWidth;
 		var textTools = new TextTools(null);
 
-		line.inlines[0].text = line._tocItemNode.positions[0].pageNumber.toString();
-		newWidth = textTools.widthOfString(line.inlines[0].text, line.inlines[0].font, line.inlines[0].fontSize, line.inlines[0].characterSpacing);
-		diffWidth = line.inlines[0].width - newWidth;
-		line.inlines[0].width = newWidth;
+		if (isUndefined(_pageNodeRef.positions)) {
+			throw 'Page reference id not found';
+		}
 
-		switch (line.inlines[0].alignment) {
+		var pageNumber = _pageNodeRef.positions[0].pageNumber.toString();
+
+		inline.text = pageNumber;
+		inline.linkToPage = pageNumber;
+		newWidth = textTools.widthOfString(inline.text, inline.font, inline.fontSize, inline.characterSpacing, inline.fontFeatures);
+		diffWidth = inline.width - newWidth;
+		inline.width = newWidth;
+
+		switch (inline.alignment) {
 			case 'right':
-				line.inlines[0].x += diffWidth;
+				inline.x += diffWidth;
 				break;
 			case 'center':
-				line.inlines[0].x += diffWidth / 2;
+				inline.x += diffWidth / 2;
 				break;
 		}
+	}
+
+	if (line._pageNodeRef) {
+		preparePageNodeRefLine(line._pageNodeRef, line.inlines[0]);
 	}
 
 	x = x || 0;
@@ -373,17 +411,27 @@ function renderLine(line, x, y, pdfKitDoc) {
 		var inline = line.inlines[i];
 		var shiftToBaseline = lineHeight - ((inline.font.ascender / 1000) * inline.fontSize) - descent;
 
-		pdfKitDoc.fill(inline.color || 'black');
+		if (inline._pageNodeRef) {
+			preparePageNodeRefLine(inline._pageNodeRef, inline);
+		}
 
-		pdfKitDoc._font = inline.font;
-		pdfKitDoc.fontSize(inline.fontSize);
-		pdfKitDoc.text(inline.text, x + inline.x, y + shiftToBaseline, {
+		var options = {
 			lineBreak: false,
 			textWidth: inline.width,
 			characterSpacing: inline.characterSpacing,
 			wordCount: 1,
 			link: inline.link
-		});
+		};
+
+		if (inline.fontFeatures) {
+			options.features = inline.fontFeatures;
+		}
+
+		pdfKitDoc.fill(inline.color || 'black');
+
+		pdfKitDoc._font = inline.font;
+		pdfKitDoc.fontSize(inline.fontSize);
+		pdfKitDoc.text(inline.text, x + inline.x, y + shiftToBaseline, options);
 
 		if (inline.linkToPage) {
 			var _ref = pdfKitDoc.ref({Type: 'Action', S: 'GoTo', D: [inline.linkToPage, 0, 0]}).end();
@@ -425,6 +473,7 @@ function renderVector(vector, pdfKitDoc) {
 		pdfKitDoc.undash();
 	}
 	pdfKitDoc.lineJoin(vector.lineJoin || 'miter');
+	pdfKitDoc.lineCap(vector.lineCap || 'butt');
 
 	//TODO: clipping
 
@@ -498,8 +547,14 @@ function renderImage(image, x, y, pdfKitDoc) {
 	}
 }
 
+function beginClip(rect, pdfKitDoc) {
+	pdfKitDoc.save();
+	pdfKitDoc.addContent('' + rect.x + ' ' + rect.y + ' ' + rect.width + ' ' + rect.height + ' re');
+	pdfKitDoc.clip();
+}
+
+function endClip(pdfKitDoc) {
+	pdfKitDoc.restore();
+}
+
 module.exports = PdfPrinter;
-
-
-/* temporary browser extension */
-PdfPrinter.prototype.fs = require('fs');

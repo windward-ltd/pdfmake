@@ -1,7 +1,7 @@
-/* jslint node: true */
 'use strict';
 
 var TraversalTracker = require('./traversalTracker');
+var isString = require('./helpers').isString;
 
 /**
  * Creates an instance of DocumentContext - a store for current x, y positions and available width/height.
@@ -22,6 +22,8 @@ function DocumentContext(pageSize, pageMargins) {
 	this.endingCell = null;
 
 	this.tracker = new TraversalTracker();
+
+	this.backgroundLength = [];
 
 	this.addPage(pageSize);
 }
@@ -91,17 +93,32 @@ DocumentContext.prototype.saveContextInEndingCell = function (endingCell) {
 	};
 };
 
-DocumentContext.prototype.completeColumnGroup = function () {
+DocumentContext.prototype.completeColumnGroup = function (height) {
 	var saved = this.snapshots.pop();
 
 	this.calculateBottomMost(saved);
 
 	this.endingCell = null;
 	this.x = saved.x;
-	this.y = saved.bottomMost.y;
+
+	var y = saved.bottomMost.y;
+	if (height) {
+		if (saved.page === saved.bottomMost.page) {
+			if ((saved.y + height) > y) {
+				y = saved.y + height;
+			}
+		} else {
+			y += height;
+		}
+	}
+
+	this.y = y;
 	this.page = saved.bottomMost.page;
 	this.availableWidth = saved.availableWidth;
 	this.availableHeight = saved.bottomMost.availableHeight;
+	if (height) {
+		this.availableHeight -= (y - saved.bottomMost.y);
+	}
 	this.lastColumnWidth = saved.lastColumnWidth;
 };
 
@@ -169,7 +186,7 @@ DocumentContext.prototype.endDetachedBlock = function () {
 function pageOrientation(pageOrientationString, currentPageOrientation) {
 	if (pageOrientationString === undefined) {
 		return currentPageOrientation;
-	} else if ((typeof pageOrientationString === 'string' || pageOrientationString instanceof String) && (pageOrientationString.toLowerCase() === 'landscape')) {
+	} else if (isString(pageOrientationString) && (pageOrientationString.toLowerCase() === 'landscape')) {
 		return 'landscape';
 	} else {
 		return 'portrait';
@@ -231,6 +248,7 @@ DocumentContext.prototype.moveToNextPage = function (pageOrientation) {
 DocumentContext.prototype.addPage = function (pageSize) {
 	var page = {items: [], pageSize: pageSize};
 	this.pages.push(page);
+	this.backgroundLength.push(0);
 	this.page = this.pages.length - 1;
 	this.initializePage();
 
@@ -283,9 +301,5 @@ function bottomMostContext(c1, c2) {
 		availableWidth: r.availableWidth
 	};
 }
-
-/****TESTS**** (add a leading '/' to uncomment)
- DocumentContext.bottomMostContext = bottomMostContext;
- // */
 
 module.exports = DocumentContext;

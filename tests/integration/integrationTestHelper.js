@@ -1,10 +1,7 @@
-/* jslint node: true */
 'use strict';
 
-var _ = require('lodash');
-
+var PdfKitEngine = require('../../src/pdfKitEngine');
 var sizes = require('../../src/standardPageSizes');
-var PdfKit = require('pdfkit');
 var LayoutBuilder = require('../../src/layoutBuilder');
 var FontProvider = require('../../src/fontProvider');
 var ImageMeasure = require('../../src/imageMeasure');
@@ -29,7 +26,7 @@ IntegrationTestHelper.prototype.renderPages = function (sizeName, docDefinition)
 
 	var pageSize = {width: size[0], height: size[1], orientation: 'portrait'};
 
-	var pdfKitDoc = new PdfKit({size: [pageSize.width, pageSize.height], compress: false});
+	var pdfKitDoc = PdfKitEngine.createPdfDocument({size: [pageSize.width, pageSize.height], compress: false});
 	var builder = new LayoutBuilder(
 		pageSize,
 		{left: this.MARGINS.left, right: this.MARGINS.right, top: this.MARGINS.top, bottom: this.MARGINS.bottom},
@@ -51,7 +48,7 @@ IntegrationTestHelper.prototype.renderPages = function (sizeName, docDefinition)
 };
 
 IntegrationTestHelper.prototype.getInlineTexts = function (pages, options) {
-	return _.map(pages[options.page].items[options.item].item.inlines, 'text');
+	return pages[options.page].items[options.item].item.inlines.map(inline => inline.text);
 };
 
 IntegrationTestHelper.prototype.getWidthOfString = function (inlines) {

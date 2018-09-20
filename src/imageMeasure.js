@@ -1,7 +1,4 @@
-/* jslint node: true */
 'use strict';
-
-var PDFImage = require('pdfkit/js/image');
 
 function ImageMeasure(pdfKitDoc, imageDictionary) {
 	this.pdfKitDoc = pdfKitDoc;
@@ -9,13 +6,12 @@ function ImageMeasure(pdfKitDoc, imageDictionary) {
 }
 
 ImageMeasure.prototype.measureImage = function (src) {
-	var image, label;
+	var image;
 	var that = this;
 
 	if (!this.pdfKitDoc._imageRegistry[src]) {
-		label = 'I' + (++this.pdfKitDoc._imageCount);
 		try {
-			image = PDFImage.open(realImageSrc(src), label);
+			image = this.pdfKitDoc.openImage(realImageSrc(src));
 		} catch (error) {
 			image = null;
 		}
@@ -42,7 +38,7 @@ ImageMeasure.prototype.measureImage = function (src) {
 			return that.imageDictionary[src];
 		}
 
-		return new Buffer(img.substring(index + 7), 'base64');
+		return Buffer.from(img.substring(index + 7), 'base64');
 	}
 };
 
