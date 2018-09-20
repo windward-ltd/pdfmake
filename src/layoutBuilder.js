@@ -1,7 +1,5 @@
-/* jslint node: true */
 'use strict';
 
-var _ = require('lodash');
 var TraversalTracker = require('./traversalTracker');
 var DocPreprocessor = require('./docPreprocessor');
 var DocMeasure = require('./docMeasure');
@@ -10,6 +8,8 @@ var PageElementWriter = require('./pageElementWriter');
 var ColumnCalculator = require('./columnCalculator');
 var TableProcessor = require('./tableProcessor');
 var Line = require('./line');
+var isString = require('./helpers').isString;
+var isArray = require('./helpers').isArray;
 var pack = require('./helpers').pack;
 var offsetVector = require('./helpers').offsetVector;
 var fontStringify = require('./helpers').fontStringify;
@@ -18,7 +18,7 @@ var TextTools = require('./textTools');
 var StyleContextStack = require('./styleContextStack');
 
 function addAll(target, otherArray) {
-	_.each(otherArray, function (item) {
+	otherArray.forEach(function (item) {
 		target.push(item);
 	});
 }
@@ -60,45 +60,62 @@ LayoutBuilder.prototype.layoutDocument = function (docStructure, fontProvider, s
 			return false;
 		}
 
-		linearNodeList = _.reject(linearNodeList, function (node) {
-			return _.isEmpty(node.positions);
+		linearNodeList = linearNodeList.filter(function (node) {
+			return node.positions.length > 0;
 		});
 
-		_.each(linearNodeList, function (node) {
-			var nodeInfo = _.pick(node, [
+		linearNodeList.forEach(function (node) {
+			var nodeInfo = {};
+			[
 				'id', 'text', 'ul', 'ol', 'table', 'image', 'qr', 'canvas', 'columns',
 				'headlineLevel', 'style', 'pageBreak', 'pageOrientation',
 				'width', 'height'
-			]);
-			nodeInfo.startPosition = _.first(node.positions);
-			nodeInfo.pageNumbers = _.chain(node.positions).map('pageNumber').uniq().value();
+			].forEach(function (key) {
+				if (node[key] !== undefined) {
+					nodeInfo[key] = node[key];
+				}
+			});
+			nodeInfo.startPosition = node.positions[0];
+			nodeInfo.pageNumbers = node.positions.map(function (node) {
+				return node.pageNumber;
+			}).filter(function (element, position, array) {
+				return array.indexOf(element) === position;
+			});
 			nodeInfo.pages = pages.length;
-			nodeInfo.stack = _.isArray(node.stack);
+			nodeInfo.stack = isArray(node.stack);
 
 			node.nodeInfo = nodeInfo;
 		});
 
-		return _.some(linearNodeList, function (node, index, followingNodeList) {
+		return linearNodeList.some(function (node, index, followingNodeList) {
 			if (node.pageBreak !== 'before' && !node.pageBreakCalculated) {
 				node.pageBreakCalculated = true;
-				var pageNumber = _.first(node.nodeInfo.pageNumbers);
+				var pageNumber = node.nodeInfo.pageNumbers[0];
 
-				var followingNodesOnPage = _.chain(followingNodeList).drop(index + 1).filter(function (node0) {
-					return _.includes(node0.nodeInfo.pageNumbers, pageNumber);
-				}).value();
+				var followingNodesOnPage = followingNodeList.slice(index + 1).filter(function (node0) {
+					return node0.nodeInfo.pageNumbers.indexOf(pageNumber) > -1;
+				});
 
-				var nodesOnNextPage = _.chain(followingNodeList).drop(index + 1).filter(function (node0) {
-					return _.includes(node0.nodeInfo.pageNumbers, pageNumber + 1);
-				}).value();
+				var nodesOnNextPage = followingNodeList.slice(index + 1).filter(function (node0) {
+					return node0.nodeInfo.pageNumbers.indexOf(pageNumber + 1) > -1;
+				});
 
-				var previousNodesOnPage = _.chain(followingNodeList).take(index).filter(function (node0) {
-					return _.includes(node0.nodeInfo.pageNumbers, pageNumber);
-				}).value();
+				var previousNodesOnPage = followingNodeList.slice(0, index).filter(function (node0) {
+					return node0.nodeInfo.pageNumbers.indexOf(pageNumber) > -1;
+				});
 
-				if (pageBreakBeforeFct(node.nodeInfo,
-					_.map(followingNodesOnPage, 'nodeInfo'),
-					_.map(nodesOnNextPage, 'nodeInfo'),
-					_.map(previousNodesOnPage, 'nodeInfo'))) {
+				if (
+					pageBreakBeforeFct(
+						node.nodeInfo,
+						followingNodesOnPage.map(function (node) {
+							return node.nodeInfo;
+						}),
+						nodesOnNextPage.map(function (node) {
+							return node.nodeInfo;
+						}),
+						previousNodesOnPage.map(function (node) {
+							return node.nodeInfo;
+						}))) {
 					node.pageBreak = 'before';
 					return true;
 				}
@@ -111,7 +128,7 @@ LayoutBuilder.prototype.layoutDocument = function (docStructure, fontProvider, s
 
 
 	function resetXYs(result) {
-		_.each(result.linearNodeList, function (node) {
+		result.linearNodeList.forEach(function (node) {
 			node.resetXY();
 		});
 	}
@@ -142,7 +159,6 @@ LayoutBuilder.prototype.tryLayoutDocument = function (docStructure, fontProvider
 	this.addBackground(background);
 	this.processNode(docStructure);
 	this.addHeadersAndFooters(header, footer);
-	/* jshint eqnull:true */
 	if (watermark != null) {
 		this.addWatermark(watermark, fontProvider, defaultStyle);
 	}
@@ -156,14 +172,17 @@ LayoutBuilder.prototype.addBackground = function (background) {
 		return background;
 	};
 
-	var pageBackground = backgroundGetter(this.writer.context().page + 1);
+	var context = this.writer.context();
+	var pageSize = context.getCurrentPage().pageSize;
+
+	var pageBackground = backgroundGetter(context.page + 1, pageSize);
 
 	if (pageBackground) {
-		var pageSize = this.writer.context().getCurrentPage().pageSize;
 		this.writer.beginUnbreakableBlock(pageSize.width, pageSize.height);
 		pageBackground = this.docPreprocessor.preprocessDocument(pageBackground);
 		this.processNode(this.docMeasure.measureDocument(pageBackground));
 		this.writer.commitUnbreakableBlock(0, 0);
+		context.backgroundLength[context.page] += pageBackground.positions.length;
 	}
 };
 
@@ -224,7 +243,7 @@ LayoutBuilder.prototype.addHeadersAndFooters = function (header, footer) {
 };
 
 LayoutBuilder.prototype.addWatermark = function (watermark, fontProvider, defaultStyle) {
-	if (typeof watermark === 'string') {
+	if (isString(watermark)) {
 		watermark = {'text': watermark};
 	}
 
@@ -292,24 +311,28 @@ function decorateNode(node) {
 	var x = node.x, y = node.y;
 	node.positions = [];
 
-	_.each(node.canvas, function (vector) {
-		var x = vector.x, y = vector.y, x1 = vector.x1, y1 = vector.y1, x2 = vector.x2, y2 = vector.y2;
-		vector.resetXY = function () {
-			vector.x = x;
-			vector.y = y;
-			vector.x1 = x1;
-			vector.y1 = y1;
-			vector.x2 = x2;
-			vector.y2 = y2;
-		};
-	});
+	if (isArray(node.canvas)) {
+		node.canvas.forEach(function (vector) {
+			var x = vector.x, y = vector.y, x1 = vector.x1, y1 = vector.y1, x2 = vector.x2, y2 = vector.y2;
+			vector.resetXY = function () {
+				vector.x = x;
+				vector.y = y;
+				vector.x1 = x1;
+				vector.y1 = y1;
+				vector.x2 = x2;
+				vector.y2 = y2;
+			};
+		});
+	}
 
 	node.resetXY = function () {
 		node.x = x;
 		node.y = y;
-		_.each(node.canvas, function (vector) {
-			vector.resetXY();
-		});
+		if (isArray(node.canvas)) {
+			node.canvas.forEach(function (vector) {
+				vector.resetXY();
+			});
+		}
 	};
 }
 
@@ -437,7 +460,7 @@ LayoutBuilder.prototype.processColumns = function (columnNode) {
 	}
 };
 
-LayoutBuilder.prototype.processRow = function (columns, widths, gaps, tableBody, tableRow) {
+LayoutBuilder.prototype.processRow = function (columns, widths, gaps, tableBody, tableRow, height) {
 	var self = this;
 	var pageBreaks = [], positions = [];
 
@@ -467,7 +490,7 @@ LayoutBuilder.prototype.processRow = function (columns, widths, gaps, tableBody,
 			}
 		}
 
-		self.writer.context().completeColumnGroup();
+		self.writer.context().completeColumnGroup(height);
 	});
 
 	return {pageBreaks: pageBreaks, positions: positions};
@@ -559,10 +582,24 @@ LayoutBuilder.prototype.processTable = function (tableNode) {
 
 	processor.beginTable(this.writer);
 
+	var rowHeights = tableNode.table.heights;
 	for (var i = 0, l = tableNode.table.body.length; i < l; i++) {
 		processor.beginRow(i, this.writer);
 
-		var result = this.processRow(tableNode.table.body[i], tableNode.table.widths, tableNode._offsets.offsets, tableNode.table.body, i);
+		var height;
+		if (isFunction(rowHeights)) {
+			height = rowHeights(i);
+		} else if (isArray(rowHeights)) {
+			height = rowHeights[i];
+		} else {
+			height = rowHeights;
+		}
+
+		if (height === 'auto') {
+			height = undefined;
+		}
+
+		var result = this.processRow(tableNode.table.body[i], tableNode.table.widths, tableNode._offsets.offsets, tableNode.table.body, i, height);
 		addAll(tableNode.positions, result.positions);
 
 		processor.endRow(i, this.writer, result.pageBreaks);
@@ -578,7 +615,23 @@ LayoutBuilder.prototype.processLeaf = function (node) {
 	var maxHeight = node.maxHeight || -1;
 
 	if (node._tocItemRef) {
-		line._tocItemNode = node._tocItemRef;
+		line._pageNodeRef = node._tocItemRef;
+	}
+
+	if (node._pageRef) {
+		line._pageNodeRef = node._pageRef._nodeRef;
+	}
+
+	if (line && line.inlines && isArray(line.inlines)) {
+		for (var i = 0, l = line.inlines.length; i < l; i++) {
+			if (line.inlines[i]._tocItemRef) {
+				line.inlines[i]._pageNodeRef = line.inlines[i]._tocItemRef;
+			}
+
+			if (line.inlines[i]._pageRef) {
+				line.inlines[i]._pageNodeRef = line.inlines[i]._pageRef._nodeRef;
+			}
+		}
 	}
 
 	while (line && (maxHeight === -1 || currentHeight < maxHeight)) {
@@ -615,12 +668,16 @@ LayoutBuilder.prototype.buildNextLine = function (textNode) {
 	var line = new Line(this.writer.context().availableWidth);
 	var textTools = new TextTools(null);
 
-	while (textNode._inlines && textNode._inlines.length > 0 && line.hasEnoughSpaceForInline(textNode._inlines[0])) {
+	var isForceContinue = false;
+	while (textNode._inlines && textNode._inlines.length > 0 &&
+		(line.hasEnoughSpaceForInline(textNode._inlines[0], textNode._inlines.slice(1)) || isForceContinue)) {
+		var isHardWrap = false;
 		var inline = textNode._inlines.shift();
+		isForceContinue = false;
 
-		if (!inline.noWrap && inline.text.length > 1 && inline.width > line.maxWidth) {
+		if (!inline.noWrap && inline.text.length > 1 && inline.width > line.getAvailableWidth()) {
 			var widthPerChar = inline.width / inline.text.length;
-			var maxChars = Math.floor(line.maxWidth / widthPerChar);
+			var maxChars = Math.floor(line.getAvailableWidth() / widthPerChar);
 			if (maxChars < 1) {
 				maxChars = 1;
 			}
@@ -630,14 +687,17 @@ LayoutBuilder.prototype.buildNextLine = function (textNode) {
 				newInline.text = inline.text.substr(maxChars);
 				inline.text = inline.text.substr(0, maxChars);
 
-				newInline.width = textTools.widthOfString(newInline.text, newInline.font, newInline.fontSize, newInline.characterSpacing);
-				inline.width = textTools.widthOfString(inline.text, inline.font, inline.fontSize, inline.characterSpacing);
+				newInline.width = textTools.widthOfString(newInline.text, newInline.font, newInline.fontSize, newInline.characterSpacing, newInline.fontFeatures);
+				inline.width = textTools.widthOfString(inline.text, inline.font, inline.fontSize, inline.characterSpacing, inline.fontFeatures);
 
 				textNode._inlines.unshift(newInline);
+				isHardWrap = true;
 			}
 		}
 
 		line.addInline(inline);
+
+		isForceContinue = inline.noNewLine && !isHardWrap;
 	}
 
 	line.lastLineInParagraph = textNode._inlines.length === 0;
@@ -654,12 +714,14 @@ LayoutBuilder.prototype.processImage = function (node) {
 LayoutBuilder.prototype.processCanvas = function (node) {
 	var height = node._minHeight;
 
-	if (this.writer.context().availableHeight < height) {
+	if (node.absolutePosition === undefined && this.writer.context().availableHeight < height) {
 		// TODO: support for canvas larger than a page
 		// TODO: support for other overflow methods
 
 		this.writer.moveToNextPage();
 	}
+
+	this.writer.alignCanvas(node);
 
 	node.canvas.forEach(function (vector) {
 		var position = this.writer.addVector(vector);

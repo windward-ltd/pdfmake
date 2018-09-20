@@ -1,6 +1,10 @@
-/* jslint node: true */
 'use strict';
 
+var isString = require('./helpers').isString;
+var isNumber = require('./helpers').isNumber;
+var isObject = require('./helpers').isObject;
+var isArray = require('./helpers').isArray;
+var isUndefined = require('./helpers').isUndefined;
 var LineBreaker = require('linebreak');
 
 var LEADING = /^(\s)+/g;
@@ -70,11 +74,12 @@ TextTools.prototype.buildInlines = function (textArray, styleContextStack) {
  * @return {Object}                   size of the specified string
  */
 TextTools.prototype.sizeOfString = function (text, styleContextStack) {
-	text = text ? text.toString().replace('\t', '    ') : '';
+	text = text ? text.toString().replace(/\t/g, '    ') : '';
 
 	//TODO: refactor - extract from measure
 	var fontName = getStyleProperty({}, styleContextStack, 'font', 'Roboto');
 	var fontSize = getStyleProperty({}, styleContextStack, 'fontSize', 12);
+	var fontFeatures = getStyleProperty({}, styleContextStack, 'fontFeatures', null);
 	var bold = getStyleProperty({}, styleContextStack, 'bold', false);
 	var italics = getStyleProperty({}, styleContextStack, 'italics', false);
 	var lineHeight = getStyleProperty({}, styleContextStack, 'lineHeight', 1);
@@ -83,7 +88,7 @@ TextTools.prototype.sizeOfString = function (text, styleContextStack) {
 	var font = this.fontProvider.provideFont(fontName, bold, italics);
 
 	return {
-		width: widthOfString(text, font, fontSize, characterSpacing),
+		width: widthOfString(text, font, fontSize, characterSpacing, fontFeatures),
 		height: font.lineHeight(fontSize) * lineHeight,
 		fontSize: fontSize,
 		lineHeight: lineHeight,
@@ -92,13 +97,13 @@ TextTools.prototype.sizeOfString = function (text, styleContextStack) {
 	};
 };
 
-TextTools.prototype.widthOfString = function (text, font, fontSize, characterSpacing) {
-	return widthOfString(text, font, fontSize, characterSpacing);
+TextTools.prototype.widthOfString = function (text, font, fontSize, characterSpacing, fontFeatures) {
+	return widthOfString(text, font, fontSize, characterSpacing, fontFeatures);
 };
 
 function splitWords(text, noWrap) {
 	var results = [];
-	text = text.replace('\t', '    ');
+	text = text.replace(/\t/g, '    ');
 
 	if (noWrap) {
 		results.push({text: text});
@@ -139,23 +144,68 @@ function copyStyle(source, destination) {
 }
 
 function normalizeTextArray(array, styleContextStack) {
+	function flatten(array) {
+		return array.reduce(function (prev, cur) {
+			var current = isArray(cur.text) ? flatten(cur.text) : cur;
+			var more = [].concat(current).some(Array.isArray);
+			return prev.concat(more ? flatten(current) : current);
+		}, []);
+	}
+
+	function getOneWord(index, words, noWrap) {
+		if (isUndefined(words[index])) {
+			return null;
+		}
+
+		if (words[index].lineEnd) {
+			return null;
+		}
+
+		var word = words[index].text;
+
+		if (noWrap) {
+			var tmpWords = splitWords(normalizeString(word), false);
+			if (isUndefined(tmpWords[tmpWords.length - 1])) {
+				return null;
+			}
+			word = tmpWords[tmpWords.length - 1].text;
+		}
+
+		return word;
+	}
+
 	var results = [];
 
-	if (!Array.isArray(array)) {
+	if (!isArray(array)) {
 		array = [array];
 	}
 
+	array = flatten(array);
+
+	var lastWord = null;
 	for (var i = 0, l = array.length; i < l; i++) {
 		var item = array[i];
 		var style = null;
 		var words;
 
 		var noWrap = getStyleProperty(item || {}, styleContextStack, 'noWrap', false);
-		if (item !== null && (typeof item === 'object' || item instanceof Object)) {
+		if (isObject(item)) {
+			if (item._textRef && item._textRef._textNodeRef.text) {
+				item.text = item._textRef._textNodeRef.text;
+			}
 			words = splitWords(normalizeString(item.text), noWrap);
 			style = copyStyle(item);
 		} else {
 			words = splitWords(normalizeString(item), noWrap);
+		}
+
+		if (lastWord && words.length) {
+			var firstWord = getOneWord(0, words, noWrap);
+
+			var wrapWords = splitWords(normalizeString(lastWord + firstWord), false);
+			if (wrapWords.length === 1) {
+				results[results.length - 1].noNewLine = true;
+			}
 		}
 
 		for (var i2 = 0, l2 = words.length; i2 < l2; i2++) {
@@ -171,6 +221,11 @@ function normalizeTextArray(array, styleContextStack) {
 
 			results.push(result);
 		}
+
+		lastWord = null;
+		if (i + 1 < l) {
+			lastWord = getOneWord(words.length - 1, words, noWrap);
+		}
 	}
 
 	return results;
@@ -179,9 +234,9 @@ function normalizeTextArray(array, styleContextStack) {
 function normalizeString(value) {
 	if (value === undefined || value === null) {
 		return '';
-	} else if (typeof value === 'number') {
+	} else if (isNumber(value)) {
 		return value.toString();
-	} else if (typeof value === 'string' || value instanceof String) {
+	} else if (isString(value)) {
 		return value;
 	} else {
 		return value.toString();
@@ -226,6 +281,7 @@ function measure(fontProvider, textArray, styleContextStack) {
 	normalized.forEach(function (item) {
 		var fontName = getStyleProperty(item, styleContextStack, 'font', 'Roboto');
 		var fontSize = getStyleProperty(item, styleContextStack, 'fontSize', 12);
+		var fontFeatures = getStyleProperty(item, styleContextStack, 'fontFeatures', null);
 		var bold = getStyleProperty(item, styleContextStack, 'bold', false);
 		var italics = getStyleProperty(item, styleContextStack, 'italics', false);
 		var color = getStyleProperty(item, styleContextStack, 'color', 'black');
@@ -242,7 +298,7 @@ function measure(fontProvider, textArray, styleContextStack) {
 
 		var font = fontProvider.provideFont(fontName, bold, italics);
 
-		item.width = widthOfString(item.text, font, fontSize, characterSpacing);
+		item.width = widthOfString(item.text, font, fontSize, characterSpacing, fontFeatures);
 		item.height = font.lineHeight(fontSize) * lineHeight;
 
 		var leadingSpaces = item.text.match(LEADING);
@@ -252,12 +308,12 @@ function measure(fontProvider, textArray, styleContextStack) {
 		}
 
 		if (leadingSpaces && !preserveLeadingSpaces) {
-			item.leadingCut += widthOfString(leadingSpaces[0], font, fontSize, characterSpacing);
+			item.leadingCut += widthOfString(leadingSpaces[0], font, fontSize, characterSpacing, fontFeatures);
 		}
 
 		var trailingSpaces = item.text.match(TRAILING);
 		if (trailingSpaces) {
-			item.trailingCut = widthOfString(trailingSpaces[0], font, fontSize, characterSpacing);
+			item.trailingCut = widthOfString(trailingSpaces[0], font, fontSize, characterSpacing, fontFeatures);
 		} else {
 			item.trailingCut = 0;
 		}
@@ -265,6 +321,7 @@ function measure(fontProvider, textArray, styleContextStack) {
 		item.alignment = getStyleProperty(item, styleContextStack, 'alignment', 'left');
 		item.font = font;
 		item.fontSize = fontSize;
+		item.fontFeatures = fontFeatures;
 		item.characterSpacing = characterSpacing;
 		item.color = color;
 		item.decoration = decoration;
@@ -279,15 +336,8 @@ function measure(fontProvider, textArray, styleContextStack) {
 	return normalized;
 }
 
-function widthOfString(text, font, fontSize, characterSpacing) {
-	return font.widthOfString(text, fontSize) + ((characterSpacing || 0) * (text.length - 1));
+function widthOfString(text, font, fontSize, characterSpacing, fontFeatures) {
+	return font.widthOfString(text, fontSize, fontFeatures) + ((characterSpacing || 0) * (text.length - 1));
 }
-
-/****TESTS**** (add a leading '/' to uncomment)
- TextTools.prototype.splitWords = splitWords;
- TextTools.prototype.normalizeTextArray = normalizeTextArray;
- TextTools.prototype.measure = measure;
- // */
-
 
 module.exports = TextTools;

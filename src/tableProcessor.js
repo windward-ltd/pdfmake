@@ -1,7 +1,7 @@
-/* jslint node: true */
 'use strict';
 
 var ColumnCalculator = require('./columnCalculator');
+var isFunction = require('./helpers').isFunction;
 
 function TableProcessor(tableNode) {
 	this.tableNode = tableNode;
@@ -148,6 +148,12 @@ TableProcessor.prototype.beginRow = function (rowIndex, writer) {
 TableProcessor.prototype.drawHorizontalLine = function (lineIndex, writer, overrideY) {
 	var lineWidth = this.layout.hLineWidth(lineIndex, this.tableNode);
 	if (lineWidth) {
+		var style = this.layout.hLineStyle(lineIndex, this.tableNode);
+		var dash;
+		if (style && style.dash) {
+			dash = style.dash;
+		}
+
 		var offset = lineWidth / 2;
 		var currentLine = null;
 		var body = this.tableNode.table.body;
@@ -195,7 +201,8 @@ TableProcessor.prototype.drawHorizontalLine = function (lineIndex, writer, overr
 						y1: y,
 						y2: y,
 						lineWidth: lineWidth,
-						lineColor: typeof this.layout.hLineColor === 'function' ? this.layout.hLineColor(lineIndex, this.tableNode) : this.layout.hLineColor
+						dash: dash,
+						lineColor: isFunction(this.layout.hLineColor) ? this.layout.hLineColor(lineIndex, this.tableNode) : this.layout.hLineColor
 					}, false, overrideY);
 					currentLine = null;
 				}
@@ -211,6 +218,11 @@ TableProcessor.prototype.drawVerticalLine = function (x, y0, y1, vLineIndex, wri
 	if (width === 0) {
 		return;
 	}
+	var style = this.layout.vLineStyle(vLineIndex, this.tableNode);
+	var dash;
+	if (style && style.dash) {
+		dash = style.dash;
+	}
 	writer.addVector({
 		type: 'line',
 		x1: x + width / 2,
@@ -218,14 +230,14 @@ TableProcessor.prototype.drawVerticalLine = function (x, y0, y1, vLineIndex, wri
 		y1: y0,
 		y2: y1,
 		lineWidth: width,
-		lineColor: typeof this.layout.vLineColor === 'function' ? this.layout.vLineColor(vLineIndex, this.tableNode) : this.layout.vLineColor
+		dash: dash,
+		lineColor: isFunction(this.layout.vLineColor) ? this.layout.vLineColor(vLineIndex, this.tableNode) : this.layout.vLineColor
 	}, false, true);
 };
 
 TableProcessor.prototype.endTable = function (writer) {
 	if (this.cleanUpRepeatables) {
 		writer.popFromRepeatables();
-		this.headerRepeatableHeight = null;
 	}
 };
 
@@ -257,10 +269,6 @@ TableProcessor.prototype.endRow = function (rowIndex, writer, pageBreaks) {
 			ys[ys.length - 1].y1 = pageBreak.prevY;
 
 			ys.push({y0: pageBreak.y, page: pageBreak.prevPage + 1});
-
-			if (this.headerRepeatableHeight) {
-				ys[ys.length - 1].y0 += this.headerRepeatableHeight;
-			}
 		}
 	}
 
@@ -309,7 +317,7 @@ TableProcessor.prototype.endRow = function (rowIndex, writer, pageBreaks) {
 			if (i < l - 1) {
 				var fillColor = body[rowIndex][colIndex].fillColor;
 				if (!fillColor) {
-					fillColor = typeof this.layout.fillColor === 'function' ? this.layout.fillColor(rowIndex, this.tableNode) : this.layout.fillColor;
+					fillColor = isFunction(this.layout.fillColor) ? this.layout.fillColor(rowIndex, this.tableNode, colIndex) : this.layout.fillColor;
 				}
 				if (fillColor) {
 					var wBorder = (leftBorder || rightBorder) ? this.layout.vLineWidth(colIndex, this.tableNode) : 0;
@@ -323,7 +331,7 @@ TableProcessor.prototype.endRow = function (rowIndex, writer, pageBreaks) {
 						h: y2 + this.bottomLineWidth - yf,
 						lineWidth: 0,
 						color: fillColor
-					}, false, true, 0);
+					}, false, true, writer.context().backgroundLength[writer.context().page]);
 				}
 			}
 		}
@@ -377,7 +385,6 @@ TableProcessor.prototype.endRow = function (rowIndex, writer, pageBreaks) {
 	}
 
 	if (this.headerRepeatable && (rowIndex === (this.rowsWithoutPageBreak - 1) || rowIndex === this.tableNode.table.body.length - 1)) {
-		this.headerRepeatableHeight = this.headerRepeatable.height;
 		writer.commitUnbreakableBlock();
 		writer.pushToRepeatables(this.headerRepeatable);
 		this.cleanUpRepeatables = true;

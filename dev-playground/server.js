@@ -2,7 +2,6 @@
 var http = require('http');
 var express = require('express');
 var path = require('path');
-var _ = require('lodash');
 var bodyParser = require('body-parser');
 
 var pdfMakePrinter = require('../src/printer');
@@ -45,8 +44,9 @@ function createPdfBinary(pdfDoc, callback) {
 }
 
 app.post('/pdf', function (req, res) {
+  eval(req.body.content);
 
-  createPdfBinary(req.body, function(binary) {
+  createPdfBinary(dd, function(binary) {
     res.contentType('application/pdf');
     res.send(binary);
   }, function(error) {

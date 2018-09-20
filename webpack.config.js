@@ -1,12 +1,18 @@
 var path = require('path');
 var StringReplacePlugin = require("string-replace-webpack-plugin");
+var webpack = require('webpack');
+var pkg = require('./package.json');
 
+var banner = '/*! ' + pkg.name + ' v' + pkg.version + ', @license ' + pkg.license + ', @link ' + pkg.homepage + ' */';
 
 module.exports = {
-	entry: './src/browser-extensions/pdfMake.js',
+	entry: {
+		'pdfmake': './src/browser-extensions/pdfMake.js',
+		'pdfmake.min': './src/browser-extensions/pdfMake.js'
+	},
 	output: {
 		path: path.join(__dirname, './build'),
-		filename: 'pdfmake.js',
+		filename: '[name].js',
 		libraryTarget: 'umd'
 	},
 	resolve: {
@@ -15,10 +21,9 @@ module.exports = {
 		}
 	},
 	module: {
-		loaders: [
-			{test: /\.json$/, loader: 'json-loader'},
-			{test: /pdfMake.js$/, loader: 'expose?pdfMake', include: [path.join(__dirname, './src/browser-extensions')]},
-			{test: /pdfkit[\/\\]js[\/\\]mixins[\/\\]fonts.js$/, loader: StringReplacePlugin.replace({
+		rules: [
+			{test: /pdfMake.js$/, loader: 'expose-loader?pdfMake', include: [path.join(__dirname, './src/browser-extensions')]},
+			{test: /pdfkit[/\\]js[/\\]/, loader: StringReplacePlugin.replace({
 					replacements: [
 						{
 							pattern: 'return this.font(\'Helvetica\');',
@@ -28,7 +33,7 @@ module.exports = {
 						}
 					]})
 			},
-			{test: /fontkit[\/\\]index.js$/, loader: StringReplacePlugin.replace({
+			{test: /fontkit[/\\]index.js$/, loader: StringReplacePlugin.replace({
 					replacements: [
 						{
 							pattern: /fs\./g,
@@ -49,12 +54,31 @@ module.exports = {
 						}
 					]})
 			},
-			{enforce: 'post', test: /fontkit[\/\\]index.js$/, loader: "transform?brfs"},
-			{enforce: 'post', test: /unicode-properties[\/\\]index.js$/, loader: "transform?brfs"},
-			{enforce: 'post', test: /linebreak[\/\\]src[\/\\]linebreaker.js/, loader: "transform?brfs"}
+			{enforce: 'post', test: /fontkit[/\\]index.js$/, loader: "transform-loader?brfs"},
+			{enforce: 'post', test: /unicode-properties[/\\]index.js$/, loader: "transform-loader?brfs"},
+			{enforce: 'post', test: /linebreak[/\\]src[/\\]linebreaker.js/, loader: "transform-loader?brfs"}
 		]
 	},
 	plugins: [
-		new StringReplacePlugin()
-	]
+		new StringReplacePlugin(),
+
+		new webpack.optimize.UglifyJsPlugin({
+			include: /\.min\.js$/,
+			sourceMap: true,
+			uglifyOptions: {
+				compress: {
+					drop_console: true
+				},
+				mangle: {
+					reserved: ['HeadTable', 'NameTable', 'CmapTable', 'HheaTable', 'MaxpTable', 'HmtxTable', 'PostTable', 'OS2Table', 'LocaTable', 'GlyfTable']
+				}
+			}
+		}),
+
+		new webpack.BannerPlugin({
+			banner: banner,
+			raw: true
+		})
+	],
+	devtool: 'source-map'
 };
